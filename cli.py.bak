@@ -1,0 +1,341 @@
+import os, json, time
+import typer
+from rich import print, box
+from rich.table import Table
+from dotenv import load_dotenv
+
+from copilot.workflows.health import health_snapshot
+from copilot.workflows.triage import triage
+from copilot.workflows.status import status_from_context
+from copilot.tools.kubectl_safe import run as kctl
+from copilot.tools.slo import burn_rate
+from copilot.tools.canary import compare as canary_compare
+from copilot.tools.cost import heuristic as cost_heuristic
+
+app = typer.Typer(help="On-Call Copilot CLI")
+load_dotenv()
+
+def maybe_audit(name: str, payload: dict, audit: bool):
+    if not audit:
+        return
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    path = os.path.join("audits", f"{ts}-{name}.json")
+    os.makedirs("audits", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
+@app.command()
+def health(namespace: str = typer.Option(None, help="Kubernetes namespace"),
+           json_out: bool = typer.Option(False, "--json", help="Print JSON"),
+           audit: bool = typer.Option(False, "--audit", help="Write JSON audit log")):
+    """Cluster health snapshot: pods, nodes, events, and hints."""
+    data = health_snapshot(namespace)
+    maybe_audit("health", data, audit)
+    if json_out:
+        print_json(data)
+        return
+    show_health(data)
+
+def show_health(data: dict):
+    print("[bold underline]Cluster Health Snapshot[/]")
+    for key in ("pods","nodes","events"):
+        section = data.get(key, {})
+        print(f"\n[bold]{key.upper()}[/] (cmd: {section.get('cmd','-')}, {section.get('ms','?')} ms)")
+        text = (section.get("text") or section.get("error") or "").strip()
+        print(text[:1200] + ("..." if len(text) > 1200 else ""))
+    print("\n[bold]Next checks:[/]", ", ".join(data.get("hints", [])))
+
+@app.command('triage')
+def triage_cmd(pod: str = typer.Option(..., "--pod", help="Pod name"),
+               namespace: str = typer.Option(None, "--namespace", help="Namespace"),
+               lines: int = typer.Option(500, "--lines", help="Log tail lines"),
+               json_out: bool = typer.Option(False, "--json"),
+               audit: bool = typer.Option(False, "--audit")):
+    """Log triage for a pod: extract top errors and relevant runbooks."""
+    data = triage(pod, namespace, lines)
+    maybe_audit("triage", data, audit)
+    if json_out:
+        print_json(data)
+        return
+    show_triage(data)
+
+def show_triage(data: dict):
+    print("[bold underline]Log Triage[/]")
+    logs = data.get("logs", {})
+    if logs.get("ok"):
+        print("\n[bold]Logs (tail):[/]")
+        t = logs.get("text","")
+        print(t[:1200] + ("..." if len(t)>1200 else ""))
+    else:
+        print(f"\n[red]Log fetch failed:[/] {logs.get('error')}")
+    errs = data.get("top_errors", [])
+    if errs:
+        table = Table(title="Top Errors", box=box.SIMPLE)
+        table.add_column("Message"); table.add_column("Count", justify="right")
+        for e in errs: table.add_row(e["message"], str(e["count"]))
+        print(table)
+    rb = data.get("runbooks", [])
+    if rb:
+        table = Table(title="Runbook Suggestions", box=box.SIMPLE)
+        table.add_column("File"); table.add_column("Snippet")
+        for h in rb: table.add_row(h["path"], h["snippet"][:200] + ("..." if len(h["snippet"])>200 else ""))
+        print(table)
+
+@app.command("status-draft")
+def status_cmd(namespace: str = typer.Option(None, "--namespace"),
+               json_out: bool = typer.Option(False, "--json"),
+               audit: bool = typer.Option(False, "--audit")):
+    """Draft a concise stakeholder status message from a quick health snapshot."""
+    snap = health_snapshot(namespace)
+    context = json.dumps({
+        "pods": snap.get("pods", {}).get("text","")[:2000],
+        "events": snap.get("events", {}).get("text","")[:2000],
+        "hints": snap.get("hints", [])
+    }, indent=2)
+    msg = status_from_context(context)
+    data = {"status": msg}
+    maybe_audit("status", data, audit)
+    if json_out:
+        print_json(data); return
+    print("[bold underline]Draft Status Update[/]")
+    print(msg)
+
+@app.command()
+def slo_burn(error_rate: float = typer.Option(..., help="0..1 over the window"),
+             slo_target: float = typer.Option(0.995, help="Target availability (e.g., 0.995)"),
+             window_minutes: int = typer.Option(5, help="Sample window in minutes"),
+             period_minutes: int = typer.Option(43200, help="SLO period in minutes (30 days)"),
+             json_out: bool = typer.Option(False, "--json")):
+    """Calculate SLO burn rate and flag risky windows."""
+    data = burn_rate(error_rate, slo_target, window_minutes, period_minutes)
+    if json_out:
+        print_json(data); return
+    if "burn_rate" in data:
+        print(f"Burn rate: {data.get('burn_rate'):.2f}  (>1.0 means burning budget too fast)")
+    else:
+        print(data)
+
+@app.command()
+def canary(canary_ok: int, canary_total: int, base_ok: int, base_total: int,
+           canary_p95_ms: float, base_p95_ms: float,
+           max_latency_regress_pct: float = typer.Option(5.0, help="Threshold in %"),
+           json_out: bool = typer.Option(False, "--json")):
+    """Compare canary vs baseline and recommend hold/continue."""
+    data = canary_compare(canary_ok, canary_total, base_ok, base_total, canary_p95_ms, base_p95_ms, max_latency_regress_pct)
+    if json_out:
+        print_json(data); return
+    print(f"Success delta: {data['success_delta_pct']:.2f}%  p95 increase: {data['p95_increase_pct']:.2f}%")
+    print(f"[bold]{data['recommendation']}[/]")
+
+@app.command()
+def cost(namespace: str = typer.Option(None, "--namespace"),
+         json_out: bool = typer.Option(False, "--json")):
+    """Flag likely cost hotspots (heuristic) from 'kubectl get pods'."""
+    pods = kctl("get","pods",namespace=namespace)
+    suspects = []
+    if pods.get("ok") and pods.get("text"):
+        suspects = cost_heuristic(pods["text"])
+    data = {"cmd": pods.get("cmd"), "suspects": suspects}
+    if json_out:
+        print_json(data); return
+    if not suspects:
+        print("No obvious cost hotspots found (heuristic).")
+        return
+    table = Table(title="Cost Hotspots (Heuristic)", box=box.SIMPLE)
+    table.add_column("Reason"); table.add_column("Pod line")
+    for s in suspects: table.add_row(s["reason"], s["pod_line"][:90])
+    print(table)
+
+def print_json(obj):
+    print(json.dumps(obj, indent=2))
+
+# --- compact health command (adds Warnings + Latest + Next checks) ---
+from rich import print
+
+@app.command("health-compact")
+def health_compact(namespace: str = typer.Option(None, "--namespace")):
+    """Compact health view: PODS + Warnings summary + Latest warnings + Next checks."""
+    data = health_snapshot(namespace)
+    print("[bold underline]Health (compact)[/]")
+    pods = data.get("pods", {})
+    print(f"\n[bold]PODS[/] (cmd: {pods.get('cmd','-')}, {pods.get('ms','?')} ms)")
+    text = (pods.get("text") or pods.get("error") or "").strip()
+    print(text[:1200] + ("..." if len(text) > 1200 else ""))
+
+    ws = data.get("warning_summary", {}) or {}
+    counts = ws.get("count_by_reason") or {}
+    if counts:
+        print("\n[bold]Warnings summary (by reason):[/]")
+        for reason, cnt in sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:6]:
+            print(f"- {reason}: {cnt}")
+
+    latest = (ws.get("latest") or [])[:5]
+    if latest:
+        print("\n[bold]Latest Warning events:[/]")
+        for ev in latest:
+            print(f"- [{ev.get('reason')}] {ev.get('object')}: {ev.get('message')}")
+
+    hints = data.get("hints", [])
+    print("\n[bold]Next checks:[/]", ", ".join(hints) if hints else "None")
+# --- end compact health ---
+# --- SLO multi-window command (5/30/60m) ---
+from copilot.tools.slo import multi_window
+from rich.table import Table
+from rich import print
+
+@app.command("slo-multi")
+def slo_multi(
+    e5: float = typer.Option(..., help="Error rate over last 5m (0..1)"),
+    e30: float = typer.Option(..., help="Error rate over last 30m (0..1)"),
+    e60: float = typer.Option(..., help="Error rate over last 60m (0..1)"),
+    slo_target: float = typer.Option(0.995, help="Target availability"),
+    period_minutes: int = typer.Option(43200, help="SLO period (minutes)")
+):
+    data = multi_window({5: e5, 30: e30, 60: e60}, slo_target, period_minutes)
+    t = Table(title="SLO Burn (multi-window)")
+    t.add_column("Window"); t.add_column("Err rate"); t.add_column("Allowed"); t.add_column("Burn rate"); t.add_column("Level")
+    for w in [5,30,60]:
+        r = data["windows"][w]
+        allowed = r.get("allowed_error_rate_window", 0.0)
+        br = r.get("burn_rate", 0.0)
+        t.add_row(f"{w}m", f"{r.get('error_rate',0):0.4f}", f"{allowed:0.6f}", f"{br:0.2f}", r.get("level","-"))
+    worst = data["worst"]
+    print(t)
+    print(f"[bold]Worst:[/] {worst.get('burn_rate',0):0.2f}x at {worst.get('window_minutes')}m ? {worst.get('recommendation')}")
+# --- end SLO multi-window ---
+
+from copilot.tools.canary import gate as canary_gate_eval, load_policy
+from rich.table import Table
+from rich import print
+import typer
+
+@app.command("canary-gate", help="Policy-based Continue/Hold with reasons (success delta, p95/p99, sample size).")
+def canary_gate(
+    co: int = typer.Option(..., help="Canary OK"),
+    ct: int = typer.Option(..., help="Canary total"),
+    bo: int = typer.Option(..., help="Baseline OK"),
+    bt: int = typer.Option(..., help="Baseline total"),
+    cp95: float = typer.Option(..., help="Canary p95 (ms)"),
+    bp95: float = typer.Option(..., help="Baseline p95 (ms)"),
+    policy: str = typer.Option("canary_policy.json", help="Policy JSON path"),
+    cp99: float = typer.Option(None, help="Canary p99 (ms)"),
+    bp99: float = typer.Option(None, help="Baseline p99 (ms)"),
+    json_out: bool = typer.Option(False, "--json", help="Print JSON")
+):
+    pol = load_policy(policy)
+    r = canary_gate_eval(co, ct, bo, bt, cp95, bp95, pol, cp99, bp99)
+    if json_out:
+        import json as _json; print(_json.dumps(r, indent=2)); return
+    t = Table(title="Canary Gate")
+    t.add_column("Metric"); t.add_column("Canary"); t.add_column("Baseline"); t.add_column("Delta/Regress")
+    sr_c = f"{r['canary_success']*100:.2f}%" ; sr_b = f"{r['base_success']*100:.2f}%"
+    t.add_row("Success rate", sr_c, sr_b, f"{r['success_delta_pct']:.2f}%")
+    t.add_row("p95 (ms)", f"{cp95:.0f}", f"{bp95:.0f}", f"{r['p95_regress_pct']:.2f}%")
+    if r.get("p99_regress_pct") is not None:
+        t.add_row("p99 (ms)", f"{cp99:.0f}", f"{bp99:.0f}", f"{r['p99_regress_pct']:.2f}%")
+    print(t)
+    if r["decision"] == "Continue":
+        print("[bold green]Decision: Continue[/]")
+    else:
+        print("[bold red]Decision: Hold canary[/]")
+        if r["reasons"]:
+            print("Reasons:")
+            for s in r["reasons"]:
+                print(f"- {s}")
+
+from copilot.workflows.cost import scan as cost_scan
+from rich.table import Table
+from rich import print
+
+@app.command("cost", help="Flag likely cost hotspots from pod specs and status (heuristics only).")
+def cost_cmd(namespace: str = typer.Option(None, "--namespace"),
+             skew_threshold: float = typer.Option(4.0, help="limits:requests ratio to flag"),
+             restart_threshold: int = typer.Option(5, help="restarts to flag")):
+    res = cost_scan(namespace, skew_threshold, restart_threshold)
+    if not res.get("ok"):
+        print(f"[red]Error:[/] {res.get('error')}"); return
+    t = Table(title="Cost Hotspots (Heuristics)")
+    t.add_column("Pod"); t.add_column("Type"); t.add_column("Detail"); t.add_column("Suggested action")
+    for f in res.get("findings", []):
+        t.add_row(f.get("pod","-"), f.get("type","-"), f.get("detail","-"), f.get("action","-"))
+    if not res.get("findings"):
+        print("[green]No obvious hotspots found.[/] Consider enabling Prometheus for usage-based checks.")
+    else:
+        print(t)
+if __name__ == "__main__":
+    app()
+from rich import print
+
+@app.command("health-compact")
+def health_compact(namespace: str = typer.Option(None, "--namespace")):
+    """Compact health view: PODS + Warnings summary + Latest warnings + Next checks."""
+    data = health_snapshot(namespace)
+    print("[bold underline]Health (compact)[/]")
+    pods = data.get("pods", {})
+    print(f"\n[bold]PODS[/] (cmd: {pods.get('cmd','-')}, {pods.get('ms','?')} ms)")
+    text = (pods.get("text") or pods.get("error") or "").strip()
+    print(text[:1200] + ("..." if len(text) > 1200 else ""))
+
+    ws = data.get("warning_summary", {}) or {}
+    counts = ws.get("count_by_reason") or {}
+    if counts:
+        print("\n[bold]Warnings summary (by reason):[/]")
+        for reason, cnt in sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:6]:
+            print(f"- {reason}: {cnt}")
+
+    latest = (ws.get("latest") or [])[:5]
+    if latest:
+        print("\n[bold]Latest Warning events:[/]")
+        for ev in latest:
+            print(f"- [{ev.get('reason')}] {ev.get('object')}: {ev.get('message')}")
+
+    print("\n[bold]Next checks:[/]", ", ".join(data.get("hints", [])) or "None")
+from rich import print
+
+@app.command("health-compact")
+def health_compact(namespace: str = typer.Option(None, "--namespace")):
+    """Compact health view: PODS + Warnings summary + Latest warnings + Next checks."""
+    data = health_snapshot(namespace)
+    print("[bold underline]Health (compact)[/]")
+    pods = data.get("pods", {})
+    print(f"\n[bold]PODS[/] (cmd: {pods.get('cmd','-')}, {pods.get('ms','?')} ms)")
+    text = (pods.get("text") or pods.get("error") or "").strip()
+    print(text[:1200] + ("..." if len(text) > 1200 else ""))
+
+    ws = data.get("warning_summary", {}) or {}
+    counts = ws.get("count_by_reason") or {}
+    if counts:
+        print("\n[bold]Warnings summary (by reason):[/]")
+        for reason, cnt in sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:6]:
+            print(f"- {reason}: {cnt}")
+
+    latest = (ws.get("latest") or [])[:5]
+    if latest:
+        print("\n[bold]Latest Warning events:[/]")
+        for ev in latest:
+            print(f"- [{ev.get('reason')}] {ev.get('object')}: {ev.get('message')}")
+
+    print("\n[bold]Next checks:[/]", ", ".join(data.get("hints", [])) or "None")
+from copilot.tools.slo import multi_window
+from rich.table import Table
+from rich import print
+
+@app.command("slo-multi")
+def slo_multi(
+    e5: float = typer.Option(..., help="Error rate over last 5m (0..1)"),
+    e30: float = typer.Option(..., help="Error rate over last 30m (0..1)"),
+    e60: float = typer.Option(..., help="Error rate over last 60m (0..1)"),
+    slo_target: float = typer.Option(0.995, help="Target availability"),
+    period_minutes: int = typer.Option(43200, help="SLO period (minutes)")
+):
+    data = multi_window({5: e5, 30: e30, 60: e60}, slo_target, period_minutes)
+    t = Table(title="SLO Burn (multi-window)")
+    t.add_column("Window"); t.add_column("Err rate"); t.add_column("Allowed"); t.add_column("Burn rate"); t.add_column("Level")
+    for w in [5,30,60]:
+        r = data["windows"][w]
+        t.add_row(f"{w}m", f"{r.get('error_rate'):0.4f}",
+                  f"{r.get('allowed_error_rate_window'):0.6f}",
+                  f"{r.get('burn_rate',0):0.2f}", r.get("level","-"))
+    worst = data["worst"]
+    print(t)
+    print(f"[bold]Worst:[/] {worst.get('burn_rate',0):0.2f}x at {worst.get('window_minutes')}m ? {worst.get('recommendation')}")

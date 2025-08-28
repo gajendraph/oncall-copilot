@@ -1,0 +1,6 @@
+{
+  "min_total_per_arm": 500,
+  "max_p95_regress_pct": 5.0,
+  "max_p99_regress_pct": 10.0,
+  "min_success_delta_pct": -1.0
+}

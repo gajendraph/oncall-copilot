@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
+
+# Local outputs
+out/
+*.log
+
+# Kube creds / secrets (never commit!)
+kubeconfig*
+secrets/

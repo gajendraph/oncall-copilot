@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Pod
+metadata: { name: unbounded, namespace: default }
+spec:
+  containers:
+  - name: app
+    image: nginx

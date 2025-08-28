@@ -1,0 +1,71 @@
+def burn_rate(error_rate: float,
+              slo_target: float = 0.995,
+              window_minutes: int = 5,
+              period_minutes: int = 43200) -> dict:
+    """
+    Compute SLO burn rate for a given error rate measured over a short window.
+    - error_rate: observed fraction in the window (e.g., 0.012 = 1.2%)
+    - slo_target: e.g., 0.995 for 99.5%
+    - period_minutes: SLO period (default 30d = 43200m)
+    burn_rate = error_rate / ( (1 - SLO) * (window / period) )
+    Interpretation:
+      < 1.0  ? OK (you could sustain this forever)
+      1..2   ? Burning budget (watch)
+      2..6   ? Fast burn (investigate)
+      = 6    ? Page (very fast)
+    """
+    if error_rate < 0:
+        return {"error": "error_rate must be >= 0"}
+    if not (0 < slo_target < 1):
+        return {"error": "slo_target must be between 0 and 1"}
+    if window_minutes <= 0 or period_minutes <= 0:
+        return {"error": "window_minutes and period_minutes must be > 0"}
+
+    epsilon = 1.0 - slo_target                       # total budget fraction
+    allowed_in_window = epsilon * (window_minutes / period_minutes)
+    if allowed_in_window <= 0:
+        return {"error": "invalid parameters produce zero budget in window"}
+
+    br = error_rate / allowed_in_window
+
+    if br < 1.0:
+        level = "OK"
+        recommendation = "Within budget."
+    elif br < 2.0:
+        level = "Burning"
+        recommendation = "Watch; tighten canaries / check recent changes."
+    elif br < 6.0:
+        level = "Fast burn"
+        recommendation = "Investigate now; consider halting experiments."
+    else:
+        level = "Page"
+        recommendation = "Page on-call; likely customer impact soon if sustained."
+
+    return {
+        "window_minutes": window_minutes,
+        "period_minutes": period_minutes,
+        "slo_target": slo_target,
+        "error_rate": error_rate,
+        "allowed_error_rate_window": allowed_in_window,  # fraction
+        "burn_rate": br,
+        "level": level,
+        "recommendation": recommendation,
+    }
+
+
+def multi_window(error_rates: dict,
+                 slo_target: float = 0.995,
+                 period_minutes: int = 43200) -> dict:
+    """
+    Compute burn rates for several windows at once.
+    error_rates: mapping of window_minutes -> observed error_rate fraction
+    Example: {5: 0.02, 30: 0.01, 60: 0.006}
+    """
+    out = {}
+    worst = {"burn_rate": -1}
+    for w, e in error_rates.items():
+        r = burn_rate(e, slo_target, int(w), period_minutes)
+        out[int(w)] = r
+        if "burn_rate" in r and r["burn_rate"] > worst.get("burn_rate", -1):
+            worst = r | {"window_minutes": int(w)}
+    return {"windows": out, "worst": worst}

@@ -1,0 +1,8 @@
+{
+  "canary_ok": 970,
+  "canary_total": 1000,
+  "base_ok": 990,
+  "base_total": 1000,
+  "canary_p95_ms": 320.0,
+  "base_p95_ms": 300.0
+}

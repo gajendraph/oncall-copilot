@@ -1,0 +1,1 @@
+sum(rate(apiserver_request_total{code=~"5.."}[5m]))

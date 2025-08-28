@@ -1,0 +1,9 @@
+from copilot.tools.logs import tail_pod_logs, extract_errors
+from copilot.tools.runbooks import keyword_search
+
+def triage(pod: str, namespace: str | None = None, lines: int = 500) -> dict:
+    logs = tail_pod_logs(pod, namespace, lines)
+    errors = extract_errors(logs.get("text","")) if logs.get("ok") else []
+    query = " ".join([e["message"] for e in errors]) or "error timeout exception fail"
+    runbook_hits = keyword_search(query)
+    return {"logs": logs, "top_errors": errors, "runbooks": runbook_hits}

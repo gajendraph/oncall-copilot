@@ -1,0 +1,54 @@
+import json, re
+from copilot.tools.kubectl_safe import run as k
+
+def _summarize_events_json(text: str, max_items: int = 8) -> dict:
+    try:
+        obj = json.loads(text)
+    except Exception:
+        return {"count_by_reason": {}, "latest": []}
+    items = obj.get("items", [])
+    # sort newest first
+    def ts(e): return e.get("lastTimestamp") or e.get("eventTime") or e.get("firstTimestamp") or ""
+    items.sort(key=ts, reverse=True)
+    counts, latest = {}, []
+    for e in items:
+        if e.get("type") != "Warning":
+            continue
+        reason = e.get("reason") or "Unknown"
+        inv = e.get("involvedObject", {})
+        objref = f"{inv.get('kind','')}/{inv.get('name','')}".strip("/")
+        msg = (e.get("note") or e.get("message") or "").strip()[:160]
+        counts[reason] = counts.get(reason, 0) + 1
+        if len(latest) < max_items:
+            latest.append({"reason": reason, "object": objref, "message": msg})
+    return {"count_by_reason": counts, "latest": latest}
+
+def _derive_hints(pods_text: str, warn_summary: dict) -> list[str]:
+    hints = []
+    t = pods_text or ""
+    if "CrashLoopBackOff" in t:
+        hints.append("Run: kubectl logs <pod> -c <container> --previous --tail=200")
+        hints.append("Check probes: kubectl describe pod <pod> | findstr -i 'Liveness Readiness'")
+    if "ImagePullBackOff" in t or "ErrImagePull" in t:
+        hints.append("Check image & registry creds; try: kubectl describe pod <pod> | findstr -i 'ImagePull'")
+    if "Pending" in t:
+        hints.append("Check scheduling: kubectl describe pod <pod> (FailedScheduling?)")
+    if "NotReady" in t:
+        hints.append("Node not ready: kubectl describe node <node> (conditions/events)")
+    # event-driven
+    reasons = {r.lower() for r in (warn_summary.get("count_by_reason") or {}).keys()}
+    if "failedscheduling" in reasons:
+        hints.append("Investigate FailedScheduling (taints/resources).")
+    if "backoff" in reasons:
+        hints.append("Container backoff: inspect previous logs + probe timings.")
+    if "unhealthy" in reasons:
+        hints.append("Readiness/liveness failing; align startup/probe thresholds.")
+    return sorted(set(hints))[:6]
+
+def health_snapshot(ns: str | None = None) -> dict:
+    pods = k("get","pods",namespace=ns)
+    nodes = k("get","nodes")
+    events_json = k("get","events",namespace=ns, output="json")
+    warn_summary = _summarize_events_json(events_json.get("text","") or "{}")
+    hints = _derive_hints(pods.get("text","") or "", warn_summary)
+    return {"pods": pods, "nodes": nodes, "events": events_json, "warning_summary": warn_summary, "hints": hints}

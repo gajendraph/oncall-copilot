@@ -1,0 +1,3 @@
+{
+  "status": "We are currently experiencing a CrashLoopBackOff issue with the pod \"crashy,\" affecting the oncall-sandbox-control-plane. This issue has been ongoing for approximately 8 minutes, while the \"demo\" pod is running normally. Our team is investigating the root cause and reviewing warning events related to the failed container. We will provide the next update on this situation at a later time, TBD."
+}

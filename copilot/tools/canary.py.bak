@@ -1,0 +1,13 @@
+def compare(canary_ok:int, canary_total:int, base_ok:int, base_total:int,
+            canary_p95_ms:float, base_p95_ms:float, max_latency_regress_pct: float = 5.0) -> dict:
+    if min(canary_total, base_total) <= 0 or base_p95_ms <= 0:
+        return {"error":"invalid inputs"}
+    sr_canary = canary_ok / canary_total
+    sr_base   = base_ok / base_total
+    success_delta_pct = (sr_canary - sr_base) * 100.0
+    p95_increase_pct  = ((canary_p95_ms - base_p95_ms) / base_p95_ms) * 100.0
+    recommendation = "Continue"
+    if success_delta_pct < 0 or p95_increase_pct > max_latency_regress_pct:
+        recommendation = "Hold canary"
+    return {"success_delta_pct": success_delta_pct, "p95_increase_pct": p95_increase_pct,
+            "recommendation": recommendation}

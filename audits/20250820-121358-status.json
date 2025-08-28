@@ -1,0 +1,3 @@
+{
+  "status": "**Stakeholder Update:** The \"crashy\" pod is currently in a CrashLoopBackOff state, affecting service availability in the oncall-sandbox-control-plane region. This issue has persisted for approximately 25 hours, while the \"demo\" pod remains operational. We are actively investigating the root cause and reviewing warning events related to the failed container. A fix is being prioritized. Next update is TBD."
+}
