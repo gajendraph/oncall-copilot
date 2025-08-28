@@ -8,37 +8,37 @@ A compact, one‑page architecture + a README skeleton to build an **agentic on�
 
 ```mermaid
 flowchart LR
-  subgraph TP[Telemetry Plane]
-    P[Prometheus<br/>(kube-prometheus-stack)]
-    L[Loki<br/>+ Promtail]
-    KS[kube-state-metrics]
-    EV[Event Exporter<br/>(K8s events)]
+  subgraph Telemetry_Plane
+    P["Prometheus (kube-prometheus-stack)"]
+    L["Loki + Promtail"]
+    KS["kube-state-metrics"]
+    EV["Kubernetes Event Exporter"]
   end
 
-  subgraph DA[Data Access Layer (read-only)]
-    PR[PromQL client]
-    LG[LogQL client]
-    K8[Kubernetes API client<br/>(kubectl-safe)]
+  subgraph Data_Access_Layer_read_only
+    PR["PromQL client"]
+    LG["LogQL client"]
+    K8["Kubernetes API client (kubectl-safe)"]
   end
 
-  subgraph DET[Detection]
-    BR[SLO burn-rate<br/>(multi-window)]
-    ST[Stat anomalies<br/>(holt_winters, predict_linear)]
-    LGAD[Log spikes & patterns<br/>(error ratios, new signatures)]
-    EVS[Event surges<br/>(CrashLoopBackOff, FailedScheduling)]
-    CO[Composite scoring &<br/>correlation]
+  subgraph Detection
+    BR["SLO burn-rate (multi-window)"]
+    ST["Stat anomalies (holt_winters, predict_linear)"]
+    LGAD["Log spikes & patterns"]
+    EVS["Event surges"]
+    CO["Composite scoring & correlation"]
   end
 
-  subgraph AG[Reasoning Agent]
-    OBS(Observe) --> ANA(Analyze) --> REC(Recommend)
-    LLM[LLM + rules<br/>+ Runbook RAG]
+  subgraph Reasoning_Agent
+    OBS["Observe"] --> ANA["Analyze"] --> REC["Recommend"]
+    LLM["LLM + rules + runbook retrieval"]
   end
 
-  subgraph OUT[Human Interfaces]
-    CLI[CLI (health, triage,<br/>slo-prom, canary-gate, cost)]
-    CHAT[Chat (Slack/Teams)]
-    STAT[Stakeholder status draft]
-    LINKS[Deep links to Prom/Loki/Grafana]
+  subgraph Interfaces
+    CLI["CLI (health, triage, slo-prom, canary-gate, cost)"]
+    CHAT["Chat (Slack/Teams)"]
+    STAT["Stakeholder status"]
+    LINKS["Links to Prom/Loki/Grafana"]
   end
 
   P --> PR
@@ -55,7 +55,10 @@ flowchart LR
   EVS --> CO
   CO --> LLM
   LLM --> REC
-  REC --> OUT
+  REC --> CLI
+  REC --> CHAT
+  REC --> STAT
+  REC --> LINKS
 ```
 
 > **Security**: least‑privilege RBAC; short‑lived tokens; redaction; read‑only by default.
