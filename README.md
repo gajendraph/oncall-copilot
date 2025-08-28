@@ -8,57 +8,39 @@ A compact, one‑page architecture + a README skeleton to build an **agentic on�
 
 ```mermaid
 flowchart LR
-  %% Sources / Telemetry Plane
   subgraph TP[Telemetry Plane]
-    P[Prometheus
-    (kube‑prometheus‑stack)]
-    L[Loki
-    + Promtail]
-    KS[kube‑state‑metrics]
-    EV[Event Exporter
-    (K8s events)]
+    P[Prometheus<br/>(kube-prometheus-stack)]
+    L[Loki<br/>+ Promtail]
+    KS[kube-state-metrics]
+    EV[Event Exporter<br/>(K8s events)]
   end
 
-  %% Data access (read‑only tools)
-  subgraph DA[Data Access Layer (read‑only)]
+  subgraph DA[Data Access Layer (read-only)]
     PR[PromQL client]
     LG[LogQL client]
-    K8[Kubernetes API client
-    (kubectl‑safe)]
+    K8[Kubernetes API client<br/>(kubectl-safe)]
   end
 
-  %% Detection modules
   subgraph DET[Detection]
-    BR[SLO burn‑rate
-    (multi‑window)]
-    ST[Stat anomalies
-    (holt_winters, predict_linear)]
-    LGAD[Log spikes & patterns
-    (error ratios, new signatures)]
-    EVS[Event surges
-    (CrashLoopBackOff,
-    FailedScheduling)]
-    CO[Composite scoring &
-    correlation]
+    BR[SLO burn-rate<br/>(multi-window)]
+    ST[Stat anomalies<br/>(holt_winters, predict_linear)]
+    LGAD[Log spikes & patterns<br/>(error ratios, new signatures)]
+    EVS[Event surges<br/>(CrashLoopBackOff, FailedScheduling)]
+    CO[Composite scoring &<br/>correlation]
   end
 
-  %% Reasoning / Agent
   subgraph AG[Reasoning Agent]
     OBS(Observe) --> ANA(Analyze) --> REC(Recommend)
-    LLM[LLM + rules
-    + Runbook RAG]
+    LLM[LLM + rules<br/>+ Runbook RAG]
   end
 
-  %% Outputs
   subgraph OUT[Human Interfaces]
-    CLI[CLI (health, triage,
-    slo‑prom, canary‑gate, cost)]
+    CLI[CLI (health, triage,<br/>slo-prom, canary-gate, cost)]
     CHAT[Chat (Slack/Teams)]
-    STAT[Status draft for stakeholders]
+    STAT[Stakeholder status draft]
     LINKS[Deep links to Prom/Loki/Grafana]
   end
 
-  %% Edges
   P --> PR
   KS --> PR
   L --> LG
@@ -74,10 +56,6 @@ flowchart LR
   CO --> LLM
   LLM --> REC
   REC --> OUT
-
-  %% Guardrails
-  classDef guard fill:#f6f6f6,stroke:#bbb,stroke-dasharray: 5 5;
-  class DA guard
 ```
 
 > **Security**: least‑privilege RBAC; short‑lived tokens; redaction; read‑only by default.
