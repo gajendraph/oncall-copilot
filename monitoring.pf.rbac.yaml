@@ -1,0 +1,25 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: oncall-copilot-portforward, namespace: monitoring }
+rules:
+- apiGroups: [""]  # list/get services
+  resources: ["services"]
+  verbs: ["get","list"]
+- apiGroups: [""]  # see pods and watch for endpoints
+  resources: ["pods"]
+  verbs: ["get","list","watch"]
+- apiGroups: [""]  # allow portforward subresource
+  resources: ["pods/portforward"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: oncall-copilot-portforward, namespace: monitoring }
+subjects:
+- kind: ServiceAccount
+  name: oncall-copilot-ro
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: oncall-copilot-portforward

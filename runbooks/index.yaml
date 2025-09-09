@@ -1,0 +1,10 @@
+rules:
+  - pattern: 'redis.*connection.*refused'
+    runbook: runbooks/redis-connection.md
+    summary: Verify Service/Endpoints, netpol, and Redis readiness.
+  - pattern: 'timeout.*payments.*(charge|/charge)'
+    runbook: runbooks/payments-timeout.md
+    summary: Check upstream latency, scale payments, tune client timeouts.
+  - pattern: 'CrashLoopBackOff'
+    runbook: runbooks/crashloop.md
+    summary: Inspect previous logs & probes; backoff and roll back if needed.

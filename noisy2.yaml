@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: noisy2
+  namespace: default
+spec:
+  restartPolicy: Never
+  containers:
+  - name: noisy
+    image: busybox
+    command: ["sh","-c"]
+    args:
+      - |
+        i=0
+        while true; do
+          echo "ERROR: redis connection refused id=$i"
+          i=$((i+1))
+          sleep 1
+        done

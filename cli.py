@@ -282,6 +282,16 @@ def slo_prom(
     print(f"[bold]Error rate:[/] {error_rate:.4%}  (e={e:.4f}, t={t:.4f})")
     print(f"[bold]Burn rate:[/] {r['burn_rate']:.2f}x ? [bold]{r['level']}[/]")
     print(f"Recommendation: {r['recommendation']}")
+
+from agent.run import main as agent_main
+
+@app.command("agent-run", help="Run the agent once and emit a triage report")
+def agent_run(
+    namespace: str = typer.Option("default", help="Kubernetes namespace"),
+    window_minutes: int = typer.Option(5, help="Window for error rate/burn (minutes)"),
+    output: str = typer.Option("out/agent-report.md", help="Output Markdown file")
+):
+    agent_main(namespace=namespace, window_min=window_minutes, outfile=output)
 if __name__ == "__main__":
     app()
 from rich import print

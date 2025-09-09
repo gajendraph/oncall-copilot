@@ -1,0 +1,12 @@
+adminPassword: admin
+service:
+  type: ClusterIP
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.logging:3100   # in-cluster service
+      isDefault: true
