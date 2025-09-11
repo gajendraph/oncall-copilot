@@ -16,3 +16,8 @@ out/
 # Kube creds / secrets (never commit!)
 kubeconfig*
 secrets/
+out/
+tmp/
+.env
+.kube/
+
