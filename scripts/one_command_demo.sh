@@ -5,7 +5,7 @@ set -euo pipefail
 NS="${NS:-default}"
 PROM_URL="${PROM_URL:-http://127.0.0.1:9090}"
 LOKI_URL="${LOKI_URL:-http://127.0.0.1:3100}"
-SLACK_WEBHOOK="${SLACK_WEBHOOK:-https://hooks.slack.com/services/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}"     # Incoming Webhook URL
+SLACK_WEBHOOK="${SLACK_WEBHOOK:-https://hooks.slack.com/services/XXX/YYY/ZZZ}"     # Incoming Webhook URL
 CONFIRM="${CONFIRM:-false}"            # true to allow remediation
 REMEDIATION_ACTION="${REMEDIATION_ACTION:-rollout-restart}"  # restart-pod|rollout-restart|bump-probe
 REMEDIATION_TARGET="${REMEDIATION_TARGET:-demo}"             # pod or deployment name
