@@ -21,3 +21,12 @@ tmp/
 .env
 .kube/
 
+out/
+tmp/
+.env
+*.secret.yaml
+.kube/
+**/*.kubeconfig
+*.log
+gitleaks.sarif
+trufflehog.json
