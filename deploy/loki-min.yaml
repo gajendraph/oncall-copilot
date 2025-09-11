@@ -8,14 +8,10 @@ metadata: { name: loki-config, namespace: logging }
 data:
   loki.yaml: |
     auth_enabled: false
-    server:
-      http_listen_address: 0.0.0.0
-      http_listen_port: 3100
+    server: { http_listen_address: 0.0.0.0, http_listen_port: 3100 }
     common:
       path_prefix: /var/loki
-      ring:
-        kvstore:
-          store: inmemory
+      ring: { kvstore: { store: inmemory } }
       storage:
         filesystem:
           chunks_directory: /var/loki/chunks
@@ -23,19 +19,42 @@ data:
     ingester:
       lifecycler:
         ring:
-          kvstore:
-            store: inmemory
+          kvstore: { store: inmemory }
           replication_factor: 1
-      chunk_idle_period: 5m
-      max_transfer_retries: 0
-    querier:
-      max_concurrent: 4
     schema_config:
       configs:
       - from: 2020-10-24
         store: boltdb-shipper
         object_store: filesystem
         schema: v11
-        index:
-          prefix: index_
-          period: 24h
+        index: { prefix: index_, period: 24h }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: loki, namespace: logging, labels: { app: loki } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: loki } }
+  template:
+    metadata: { labels: { app: loki } }
+    spec:
+      securityContext: { fsGroup: 10001, runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001 }
+      containers:
+      - name: loki
+        image: grafana/loki:2.9.4
+        args: ["-config.file=/etc/loki/loki.yaml"]
+        ports: [{ name: http, containerPort: 3100 }]
+        readinessProbe: { httpGet: { path: /ready, port: 3100 }, initialDelaySeconds: 5, periodSeconds: 5 }
+        volumeMounts:
+          - { name: cfg,  mountPath: /etc/loki }
+          - { name: data, mountPath: /var/loki }
+      volumes:
+        - { name: cfg,  configMap: { name: loki-config } }
+        - { name: data, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: loki, namespace: logging }
+spec:
+  selector: { app: loki }
+  ports: [ { name: http, port: 3100, targetPort: 3100 } ]

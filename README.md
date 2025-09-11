@@ -300,4 +300,3 @@ kubectl -n logging port-forward svc/loki 3100:3100
 > - These values are conservative for local/dev. For production, add persistence and tune retention.
 > - If the kube‑prometheus‑stack service name differs (chart version change), adjust the port‑forward svc name accordingly.
 > - The burn‑rate alerts use the API server as a simple example; point them at your app’s HTTP metrics once available.
-
