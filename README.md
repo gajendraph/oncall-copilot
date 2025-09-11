@@ -300,3 +300,104 @@ kubectl -n logging port-forward svc/loki 3100:3100
 > - These values are conservative for local/dev. For production, add persistence and tune retention.
 > - If the kube‑prometheus‑stack service name differs (chart version change), adjust the port‑forward svc name accordingly.
 > - The burn‑rate alerts use the API server as a simple example; point them at your app’s HTTP metrics once available.
+
+# 🧭 AI On-Call Copilot
+
+[![CI](https://github.com/gajendraph/oncall-copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/gajendraph/oncall-copilot/actions/workflows/ci.yml)
+![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg?logo=python)
+![Kubernetes 1.29](https://img.shields.io/badge/Kubernetes-1.29-326CE5?logo=kubernetes&logoColor=white)
+![kind](https://img.shields.io/badge/kind-local%20K8s-FFCC00)
+![Prometheus](https://img.shields.io/badge/Prometheus-metrics-E6522C?logo=prometheus&logoColor=white)
+![Loki](https://img.shields.io/badge/Loki-logs-00B0B9?logo=grafana&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+
+AI Agent for SRE/DevOps: detects anomalies from **Prometheus metrics**, **Kubernetes events**, and **Loki logs**, drafts stakeholder updates, and offers **safe auto-remediation** (dry-run by default).
+
+---
+
+## ⚡ Quickstart (Windows + Git Bash friendly)
+
+> Prereqs: Docker Desktop (WSL2 engine), Git Bash, and `kubectl`, `kind`, `helm`, `python` on your PATH.
+
+```bash
+# 0) Clone
+git clone https://github.com/gajendraph/oncall-copilot.git
+cd oncall-copilot
+
+# 1) Spin up local cluster + monitoring + logging
+make cluster                # kind v1.29 node
+make monitoring             # kube-prometheus-stack (Prom, Alertmanager, Grafana)
+make logging                # Loki + Promtail
+make workloads              # demo + noisy/crashy pods
+
+# 2) Open UIs (run each in its own terminal tab)
+make pf-prom                # http://localhost:9090 (Prometheus)
+make pf-loki                # http://localhost:3100 (Loki /ready)
+
+# 3) Run the agent + compute incident score (main tab)
+make agent                  # writes out/agent-report.md
+make score                  # writes out/incident-score.md
+What you should see
+
+out/agent-report.md — SLO burn, crashloops, recent warnings, log spikes, stakeholder draft
+
+out/incident-score.md — 0–100 score combining error%, ERROR rate, restarts
+
+Prometheus Console at http://localhost:9090/graph
+
+Loki readiness at http://localhost:3100/ready
+
+💬 Optional: Slack + One-Command Demo
+Post to Slack (Incoming Webhook):
+
+bash
+export SLACK_WEBHOOK='https://hooks.slack.com/services/XXX/YYY/ZZZ'
+./scripts/one_command_demo.sh                 # safe / dry-run by default
+Run with a safe remediation (admin context required):
+
+bash
+CONFIRM=true REMEDIATION_ACTION=rollout-restart REMEDIATION_TARGET=demo \
+  ./scripts/one_command_demo.sh
+Artifacts land in out/ with timestamps.
+
+🛠️ Troubleshooting
+Docker not running → open Docker Desktop until it says “Running”.
+
+Port-forwards fail (Forbidden) → run make pf-* using the admin context (kind-oncall-sandbox).
+
+No logs in Loki → ensure Promtail is installed and Ready:
+
+bash
+kubectl -n logging get pods
+kubectl -n logging logs deploy/promtail --tail=60
+Prometheus/Loki readiness:
+
+bash
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:9090/-/ready
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3100/ready
+📁 Make Targets (overview)
+make cluster — create kind cluster (name: oncall-sandbox)
+
+make monitoring — install kube-prometheus-stack (namespace monitoring)
+
+make logging — apply Loki single-pod + install Promtail (namespace logging)
+
+make workloads — deploy demo + crashy + noisy-crashy pods
+
+make pf-prom / make pf-loki — port-forward Prometheus/Loki
+
+make agent — run agent report → out/agent-report.md
+
+make score — compute incident score → out/incident-score.md
+
+🧪 What to screenshot for your post
+Prometheus console result (5m error% query)
+
+Loki ERROR rate by pod (from scripts/logql-proof.sh output)
+
+out/agent-report.md and out/incident-score.md
+
+(Optional) Slack stakeholder update and a dry-run remediation
+
+pgsql
+
