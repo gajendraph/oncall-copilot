@@ -1,5 +1,8 @@
 # AI On‑Call Copilot — Architecture & README Scaffold
 
+[![secret-scan](https://github.com/gajen/oncall-copilot/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/gajen/oncall-copilot/actions/workflows/secret-scan.yml)
+[![Code Scanning](https://img.shields.io/badge/Code%20Scanning-alerts-blue?logo=github)](https://github.com/gajen/oncall-copilot/security/code-scanning)
+
 A compact, one‑page architecture + a README skeleton to build an **agentic on‑call copilot** that detects anomalies in **cluster health (metrics/events)** and **logs**, then suggests next checks and drafts stakeholder updates.
 
 ---
